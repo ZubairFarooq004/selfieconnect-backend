@@ -251,19 +251,31 @@ app.use((req, _res, next) => {
 // Root health check
 app.get('/', (_req, res) => res.json({ status: 'ok', message: 'Backend root alive 🚀' }));
 
-// Debug route: lists all registered endpoints
+// ---- Safe Debug Route ----
 app.get('/debug-routes', (req, res) => {
   try {
     const routes = [];
-    app._router.stack.forEach(layer => {
+    app._router.stack.forEach((layer) => {
       if (layer.route && layer.route.path) {
-        const method = Object.keys(layer.route.methods)[0].toUpperCase();
-        routes.push(`${method} ${layer.route.path}`);
+        const methods = Object.keys(layer.route.methods)
+          .map(m => m.toUpperCase())
+          .join(', ');
+        routes.push(`${methods} ${layer.route.path}`);
+      } else if (layer.name === 'router' && layer.handle.stack) {
+        layer.handle.stack.forEach((nested) => {
+          if (nested.route && nested.route.path) {
+            const methods = Object.keys(nested.route.methods)
+              .map(m => m.toUpperCase())
+              .join(', ');
+            routes.push(`${methods} ${nested.route.path}`);
+          }
+        });
       }
     });
-    res.json({ routes });
+    return res.json({ routes });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('debug-routes error:', err);
+    return res.status(500).json({ error: err.message || 'debug error' });
   }
 });
 
