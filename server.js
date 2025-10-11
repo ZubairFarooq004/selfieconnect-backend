@@ -166,27 +166,47 @@ app.post("/create-person", upload.single("image"), async (req, res) => {
   }
 });
 
-// ✅ Verify Upload
+// ✅ VERIFY-UPLOAD (Compare uploaded selfie with stored Face++)
 app.post("/verify-upload", upload.single("image"), async (req, res) => {
   try {
+    console.log("📩 VERIFY-UPLOAD triggered");
+
     const { userId } = req.body;
     if (!userId) return res.status(400).json({ error: "userId required" });
     if (!req.file?.buffer)
-      return res.status(400).json({ error: "image required" });
+      return res.status(400).json({ error: "image file required" });
 
+    // Detect face from uploaded buffer
     const detect = await faceppDetectFromBuffer(req.file.buffer);
     if (!detect?.faces?.length)
-      return res.json({ match: false, reason: "no_face_detected" });
+      return res
+        .status(400)
+        .json({ match: false, reason: "no_face_detected_in_uploaded_image" });
 
     const faceToken = detect.faces[0].face_token;
-    const { data: persons } = await supabase
+
+    // Fetch stored persons for this user
+    const { data: persons, error: pErr } = await supabase
       .from("persons")
       .select("*")
       .eq("owner_user_id", userId);
 
-    for (const p of persons || []) {
+    if (pErr) throw pErr;
+    if (!persons?.length)
+      return res.status(404).json({ error: "no_person_records_found" });
+
+    console.log(`🧠 Found ${persons.length} persons for user ${userId}`);
+
+    // Compare uploaded face with each saved face token
+    for (const p of persons) {
+      console.log(`🔍 Comparing with person ${p.id} (${p.name})`);
       const cmp = await faceppCompare(faceToken, p.face_token);
+
       if (cmp.confidence >= CONFIDENCE_THRESHOLD) {
+        console.log(
+          `✅ Match found: confidence ${cmp.confidence} >= ${CONFIDENCE_THRESHOLD}`
+        );
+
         const folderPath = `users/${userId}/${p.id}/`;
         const listRes = await supabase.storage
           .from("selfies")
@@ -200,16 +220,24 @@ app.post("/verify-upload", upload.single("image"), async (req, res) => {
           if (signed.data?.signedUrl) signedUrls.push(signed.data.signedUrl);
         }
 
-        return res.json({ match: true, personId: p.id, signedUrls });
+        return res.json({
+          match: true,
+          personId: p.id,
+          confidence: cmp.confidence,
+          signedUrls,
+        });
       }
     }
 
+    // No match found
+    console.log("❌ No matching person found.");
     res.json({ match: false });
   } catch (err) {
     console.error("verify-upload error:", err);
     res.status(500).json({ error: err.message || "server error" });
   }
 });
+
 
 // ✅ Generate QR
 app.post("/generate-qr", async (req, res) => {
@@ -237,46 +265,136 @@ app.post("/generate-qr", async (req, res) => {
   }
 });
 
-// ✅ Access JSON
-app.get("/access-json", async (req, res) => {
+// ✅ VIP ACCESS PAGE (modern, glowing FYP style)
+app.get("/access", async (req, res) => {
   try {
     const token = req.query.token;
-    if (!token) return res.status(400).json({ error: "token required" });
+    if (!token) return res.status(400).send("❌ token required");
 
-    const { data: links } = await supabase
-      .from("shared_links")
-      .select("*")
-      .eq("token", token)
-      .limit(1);
+    // Fetch signed URLs from /access-json
+    const jsonUrl = `${BACKEND_BASE_URL}/access-json?token=${encodeURIComponent(token)}`;
+    const resp = await axios.get(jsonUrl);
+    const signedUrls = resp.data?.signedUrls || [];
 
-    if (!links?.length) return res.status(404).json({ error: "invalid token" });
-    const link = links[0];
-
-    if (new Date(link.expires_at) < new Date())
-      return res.status(410).json({ error: "token expired" });
-
-    const ownerId = link.owner_user_id;
-    const personId = link.person_id;
-    const signedUrls = [];
-
-    const folderPath = `users/${ownerId}/${personId}/`;
-    const listRes = await supabase.storage
-      .from("selfies")
-      .list(folderPath, { limit: 100 });
-
-    for (const f of listRes.data || []) {
-      const { data } = await supabase.storage
-        .from("selfies")
-        .createSignedUrl(folderPath + f.name, 300);
-      if (data?.signedUrl) signedUrls.push(data.signedUrl);
+    if (!signedUrls.length) {
+      return res.send(`
+        <html>
+          <head>
+            <title>Selfie Connect | Gallery</title>
+            <style>
+              body {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                height: 100vh;
+                background: radial-gradient(circle at top, #1e1e2f, #111122);
+                color: #eee;
+                font-family: "Poppins", sans-serif;
+              }
+              h2 {
+                font-size: 24px;
+                text-align: center;
+                color: #ff4ef0;
+                text-shadow: 0 0 10px #ff4ef0;
+              }
+            </style>
+          </head>
+          <body><h2>No photos available or token expired 🕒</h2></body>
+        </html>
+      `);
     }
 
-    res.json({ signedUrls, personId });
+    // 🎨 VIP styled HTML gallery
+    const html = `
+      <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>Selfie Connect | Shared Gallery</title>
+          <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+          <style>
+            * { box-sizing: border-box; }
+            body {
+              margin: 0;
+              padding: 0;
+              font-family: 'Poppins', sans-serif;
+              background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+              color: #fff;
+              text-align: center;
+              overflow-x: hidden;
+            }
+            h1 {
+              margin-top: 40px;
+              font-size: 2.5rem;
+              background: linear-gradient(90deg, #00ffcc, #ff00ff);
+              -webkit-background-clip: text;
+              -webkit-text-fill-color: transparent;
+              animation: glow 2s ease-in-out infinite alternate;
+            }
+            @keyframes glow {
+              from { text-shadow: 0 0 10px #00ffcc, 0 0 20px #00ffcc; }
+              to { text-shadow: 0 0 20px #ff00ff, 0 0 40px #ff00ff; }
+            }
+            .gallery {
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+              gap: 20px;
+              padding: 30px;
+              margin-top: 30px;
+              max-width: 1200px;
+              margin-left: auto;
+              margin-right: auto;
+            }
+            .photo-card {
+              position: relative;
+              border-radius: 15px;
+              overflow: hidden;
+              box-shadow: 0 0 25px rgba(0, 255, 204, 0.3);
+              transition: transform 0.3s ease, box-shadow 0.3s ease;
+            }
+            .photo-card:hover {
+              transform: scale(1.05);
+              box-shadow: 0 0 35px rgba(255, 0, 255, 0.4);
+            }
+            img {
+              width: 100%;
+              height: 100%;
+              object-fit: cover;
+              display: block;
+            }
+            footer {
+              margin-top: 40px;
+              padding: 20px;
+              font-size: 0.9rem;
+              color: #ccc;
+              background: rgba(0,0,0,0.2);
+              border-top: 1px solid rgba(255,255,255,0.1);
+            }
+          </style>
+        </head>
+        <body>
+          <h1>📸 Selfie Connect Gallery</h1>
+          <div class="gallery">
+            ${signedUrls
+              .map(
+                (url) => `
+                <div class="photo-card">
+                  <img src="${url}" alt="selfie" loading="lazy"/>
+                </div>`
+              )
+              .join("")}
+          </div>
+          <footer>Powered by <strong>Selfie Connect</strong> • Face++ + Supabase</footer>
+        </body>
+      </html>
+    `;
+
+    res.send(html);
   } catch (err) {
-    console.error("access-json error:", err);
-    res.status(500).json({ error: err.message || "server error" });
+    console.error("access page error:", err);
+    res.status(500).send("⚠️ Server error while loading shared gallery.");
   }
 });
+
 
 // ✅ Debug Routes
 app.get("/debug-routes", (_req, res) =>
