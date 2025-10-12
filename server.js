@@ -246,9 +246,9 @@ app.post("/generate-qr", async (req, res) => {
     if (!userId) return res.status(400).json({ error: "userId required" });
 
     const token = crypto.randomBytes(16).toString("hex");
-    const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString(); // 1h
 
-    await supabase.from("shared_links").insert([
+    const { error } = await supabase.from("shared_links").insert([
       {
         owner_user_id: userId,
         person_id: personId || null,
@@ -256,6 +256,7 @@ app.post("/generate-qr", async (req, res) => {
         expires_at: expiresAt,
       },
     ]);
+    if (error) throw error;
 
     const qrLink = `${BACKEND_BASE_URL}/access?token=${token}`;
     res.json({ qrLink, token, expiresAt });
@@ -265,39 +266,41 @@ app.post("/generate-qr", async (req, res) => {
   }
 });
 
+
 // ✅ Return signed URLs JSON for gallery token
 app.get("/access-json", async (req, res) => {
   try {
     const token = req.query.token;
     if (!token) return res.status(400).json({ error: "Token required" });
 
+    // 🔍 Check token in shared_links table
     const { data: link, error } = await supabase
       .from("shared_links")
       .select("*")
       .eq("token", token)
-      .single();
+      .maybeSingle(); // safer than .single()
+    if (error) throw error;
 
-    if (error || !link)
-      return res.status(404).json({ error: "Invalid or expired token" });
+    if (!link) return res.status(404).json({ error: "Invalid or expired token" });
 
     const now = new Date();
     const expiry = new Date(link.expires_at);
-    if (now > expiry)
-      return res.status(410).json({ error: "Token expired" });
+    if (now > expiry) return res.status(410).json({ error: "Token expired" });
 
-    const { owner_user_id, person_id } = link;
-    const folderPath = `users/${owner_user_id}/${person_id}/`;
+    const ownerId = link.owner_user_id;
+    const personId = link.person_id;
 
-    const listRes = await supabase.storage
-      .from("selfies")
-      .list(folderPath, { limit: 100 });
+    // 📂 Get images from storage
+    const folderPath = `users/${ownerId}/${personId}/`;
+    const listRes = await supabase.storage.from("selfies").list(folderPath, { limit: 100 });
+    if (listRes.error) throw listRes.error;
 
     const signedUrls = [];
     for (const obj of listRes.data || []) {
-      const signed = await supabase.storage
+      const { data: signed } = await supabase.storage
         .from("selfies")
-        .createSignedUrl(folderPath + obj.name, 120);
-      if (signed.data?.signedUrl) signedUrls.push(signed.data.signedUrl);
+        .createSignedUrl(folderPath + obj.name, 300);
+      if (signed?.signedUrl) signedUrls.push(signed.signedUrl);
     }
 
     res.json({ signedUrls });
@@ -306,6 +309,7 @@ app.get("/access-json", async (req, res) => {
     res.status(500).json({ error: err.message || "server error" });
   }
 });
+
 
 // ✅ VIP ACCESS PAGE (stable, glowing FYP style + error-safe)
 app.get("/access", async (req, res) => {
