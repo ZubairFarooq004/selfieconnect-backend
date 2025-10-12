@@ -265,6 +265,48 @@ app.post("/generate-qr", async (req, res) => {
   }
 });
 
+// ✅ Return signed URLs JSON for gallery token
+app.get("/access-json", async (req, res) => {
+  try {
+    const token = req.query.token;
+    if (!token) return res.status(400).json({ error: "Token required" });
+
+    const { data: links } = await supabase
+      .from("qr_links")
+      .select("*")
+      .eq("token", token)
+      .single();
+
+    if (!links)
+      return res.status(404).json({ error: "Invalid or expired token" });
+
+    const now = new Date();
+    const expiry = new Date(links.expires_at);
+    if (now > expiry)
+      return res.status(410).json({ error: "Token expired" });
+
+    const { user_id, person_id } = links;
+    const folderPath = `users/${user_id}/${person_id}/`;
+    const listRes = await supabase.storage
+      .from("selfies")
+      .list(folderPath, { limit: 100 });
+
+    const signedUrls = [];
+    for (const obj of listRes.data || []) {
+      const signed = await supabase.storage
+        .from("selfies")
+        .createSignedUrl(folderPath + obj.name, 120);
+      if (signed.data?.signedUrl) signedUrls.push(signed.data.signedUrl);
+    }
+
+    res.json({ signedUrls });
+  } catch (err) {
+    console.error("access-json error:", err);
+    res.status(500).json({ error: err.message || "server error" });
+  }
+});
+
+
 // ✅ VIP ACCESS PAGE (stable, glowing FYP style + error-safe)
 app.get("/access", async (req, res) => {
   try {
