@@ -265,16 +265,33 @@ app.post("/generate-qr", async (req, res) => {
   }
 });
 
-// ✅ VIP ACCESS PAGE (modern, glowing FYP style)
+// ✅ VIP ACCESS PAGE (stable, glowing FYP style + error-safe)
 app.get("/access", async (req, res) => {
   try {
     const token = req.query.token;
-    if (!token) return res.status(400).send("❌ token required");
+    if (!token) return res.status(400).send("❌ Token required");
 
-    // Fetch signed URLs from /access-json
-    const jsonUrl = `${BACKEND_BASE_URL}/access-json?token=${encodeURIComponent(token)}`;
-    const resp = await axios.get(jsonUrl);
-    const signedUrls = resp.data?.signedUrls || [];
+    const safeBase = BACKEND_BASE_URL.replace(/\/$/, ""); // avoid double slashes
+    const jsonUrl = `${safeBase}/access-json?token=${encodeURIComponent(token)}`;
+
+    let signedUrls = [];
+    let errorMsg = "";
+
+    try {
+      const resp = await axios.get(jsonUrl, { timeout: 15000 });
+      if (resp.status === 200 && Array.isArray(resp.data?.signedUrls)) {
+        signedUrls = resp.data.signedUrls;
+      } else if (resp.status === 404) {
+        errorMsg = "Invalid or unknown token ❌";
+      } else if (resp.status === 410) {
+        errorMsg = "This link has expired 🕒";
+      } else {
+        errorMsg = resp.data?.error || "Unable to fetch shared photos.";
+      }
+    } catch (e) {
+      console.error("access axios error:", e?.message || e);
+      errorMsg = "Server could not retrieve the shared gallery.";
+    }
 
     if (!signedUrls.length) {
       return res.send(`
@@ -290,21 +307,26 @@ app.get("/access", async (req, res) => {
                 background: radial-gradient(circle at top, #1e1e2f, #111122);
                 color: #eee;
                 font-family: "Poppins", sans-serif;
+                text-align: center;
               }
               h2 {
                 font-size: 24px;
-                text-align: center;
                 color: #ff4ef0;
                 text-shadow: 0 0 10px #ff4ef0;
               }
             </style>
           </head>
-          <body><h2>No photos available or token expired 🕒</h2></body>
+          <body>
+            <div>
+              <h2>${errorMsg || "No photos available or token expired 🕒"}</h2>
+              <p>Please ask the owner to generate a new QR link.</p>
+            </div>
+          </body>
         </html>
       `);
     }
 
-    // 🎨 VIP styled HTML gallery
+    // 🎨 VIP glowing FYP-style gallery
     const html = `
       <html>
         <head>
@@ -374,14 +396,11 @@ app.get("/access", async (req, res) => {
         <body>
           <h1>📸 Selfie Connect Gallery</h1>
           <div class="gallery">
-            ${signedUrls
-              .map(
-                (url) => `
-                <div class="photo-card">
-                  <img src="${url}" alt="selfie" loading="lazy"/>
-                </div>`
-              )
-              .join("")}
+            ${signedUrls.map(url => `
+              <div class="photo-card">
+                <img src="${url}" alt="selfie" loading="lazy"/>
+              </div>
+            `).join("")}
           </div>
           <footer>Powered by <strong>Selfie Connect</strong> • Face++ + Supabase</footer>
         </body>
@@ -390,10 +409,11 @@ app.get("/access", async (req, res) => {
 
     res.send(html);
   } catch (err) {
-    console.error("access page error:", err);
+    console.error("access page error (outer catch):", err);
     res.status(500).send("⚠️ Server error while loading shared gallery.");
   }
 });
+
 
 
 // ✅ Debug Routes
