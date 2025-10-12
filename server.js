@@ -271,22 +271,23 @@ app.get("/access-json", async (req, res) => {
     const token = req.query.token;
     if (!token) return res.status(400).json({ error: "Token required" });
 
-    const { data: links } = await supabase
-      .from("qr_links")
+    const { data: link, error } = await supabase
+      .from("shared_links")
       .select("*")
       .eq("token", token)
       .single();
 
-    if (!links)
+    if (error || !link)
       return res.status(404).json({ error: "Invalid or expired token" });
 
     const now = new Date();
-    const expiry = new Date(links.expires_at);
+    const expiry = new Date(link.expires_at);
     if (now > expiry)
       return res.status(410).json({ error: "Token expired" });
 
-    const { user_id, person_id } = links;
-    const folderPath = `users/${user_id}/${person_id}/`;
+    const { owner_user_id, person_id } = link;
+    const folderPath = `users/${owner_user_id}/${person_id}/`;
+
     const listRes = await supabase.storage
       .from("selfies")
       .list(folderPath, { limit: 100 });
@@ -305,7 +306,6 @@ app.get("/access-json", async (req, res) => {
     res.status(500).json({ error: err.message || "server error" });
   }
 });
-
 
 // ✅ VIP ACCESS PAGE (stable, glowing FYP style + error-safe)
 app.get("/access", async (req, res) => {
