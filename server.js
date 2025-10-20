@@ -355,10 +355,90 @@ app.post("/generate-qr", async (req, res) => {
   }
 });
 
+// -----------------------------
+// ACCESS ROUTE (for QR code access)
+// -----------------------------
+app.get("/access", async (req, res) => {
+  try {
+    const { token } = req.query;
+    if (!token) {
+      return res.status(400).json({ error: "Token required" });
+    }
+
+    // Verify token and get shared link data
+    const { data: sharedLink, error } = await supabase
+      .from("shared_links")
+      .select("*")
+      .eq("token", token)
+      .gte("expires_at", new Date().toISOString())
+      .single();
+
+    if (error || !sharedLink) {
+      return res.status(404).json({ error: "Invalid or expired token" });
+    }
+
+    // Get person data if personId is provided
+    let personData = null;
+    if (sharedLink.person_id) {
+      const { data: person, error: pErr } = await supabase
+        .from("persons")
+        .select("*")
+        .eq("id", sharedLink.person_id)
+        .single();
+      
+      if (!pErr && person) {
+        personData = person;
+      }
+    }
+
+    // Get images for the person
+    let images = [];
+    if (sharedLink.person_id) {
+      const { data: imageRecords, error: imgErr } = await supabase
+        .from("images")
+        .select("*")
+        .eq("person_id", sharedLink.person_id);
+
+      if (!imgErr && imageRecords?.length) {
+        // Generate signed URLs for images
+        for (const img of imageRecords) {
+          const { data: signed, error: sErr } = await supabase.storage
+            .from(BUCKET_NAME)
+            .createSignedUrl(img.path, 300);
+          
+          if (!sErr && signed?.signedUrl) {
+            images.push({
+              id: img.id,
+              url: signed.signedUrl,
+              path: img.path
+            });
+          }
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      sharedLink: {
+        id: sharedLink.id,
+        owner_user_id: sharedLink.owner_user_id,
+        person_id: sharedLink.person_id,
+        expires_at: sharedLink.expires_at
+      },
+      person: personData,
+      images
+    });
+
+  } catch (err) {
+    console.error("access error:", err);
+    res.status(500).json({ error: err?.message || "server error" });
+  }
+});
+
 app.get("/debug-routes", (_req, res) =>
   res.json({
     backend: "Selfie Connect",
-    routes: ["GET /test", "POST /create-person", "POST /verify-upload", "POST /generate-qr", "GET /access-json"],
+    routes: ["GET /test", "POST /create-person", "POST /verify-upload", "POST /generate-qr", "GET /access", "GET /access-json"],
   })
 );
 
