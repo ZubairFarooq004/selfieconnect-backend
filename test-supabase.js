@@ -1,6 +1,8 @@
 // test-supabase.js
-require("dotenv").config();
-const { createClient } = require("@supabase/supabase-js");
+import dotenv from "dotenv";
+import { createClient } from "@supabase/supabase-js";
+
+dotenv.config();
 
 // Get userId from command line argument
 const userId = process.argv[2];
