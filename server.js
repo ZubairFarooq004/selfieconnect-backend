@@ -287,6 +287,16 @@ app.post("/verify-upload", upload.single("image"), async (req, res) => {
           }
         } // end inner compare try/catch
 
+        // Log decision details for debugging threshold behavior
+        if (cmp) {
+          const decision = {
+            confidence: cmp.confidence,
+            threshold: CONFIDENCE_THRESHOLD,
+            allow: cmp.confidence >= CONFIDENCE_THRESHOLD,
+          };
+          console.log("DECISION", decision);
+        }
+
         // If comparison succeeded and confidence high enough → upload verification image and return gallery
         if (cmp && cmp.confidence >= CONFIDENCE_THRESHOLD) {
           console.log(`✅ Match found for person ${p.id} — confidence ${cmp.confidence}`);
