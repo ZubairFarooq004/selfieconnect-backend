@@ -3,6 +3,7 @@
 // Robust verify-upload with auto-refresh of expired Face++ tokens
 
 import express from "express";
+import path from "path";
 import cors from "cors";
 import multer from "multer";
 import axios from "axios";
@@ -51,6 +52,16 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 const upload = multer({ storage: multer.memoryStorage() });
+
+// -----------------------------
+// Static hosting for web view
+// -----------------------------
+app.use(express.static("public"));
+app.get("/shared_view.html", (_req, res) => {
+  // __dirname is not defined in ESM by default; compute safely
+  const __dirnameSafe = path.dirname(new URL(import.meta.url).pathname);
+  res.sendFile(path.join(__dirnameSafe, "public", "shared_view.html"));
+});
 
 // -----------------------------
 // Face++ helpers
@@ -347,7 +358,8 @@ app.post("/generate-qr", async (req, res) => {
     ]);
     if (error) throw error;
 
-    const qrLink = `${BACKEND_BASE_URL}/access?token=${token}`;
+    const baseUrl = BACKEND_BASE_URL;
+    const qrLink = `${baseUrl}/shared_view.html?token=${token}`;
     res.json({ qrLink, token, expiresAt });
   } catch (err) {
     console.error("generate-qr error:", err);
@@ -432,6 +444,49 @@ app.get("/access", async (req, res) => {
   } catch (err) {
     console.error("access error:", err);
     res.status(500).json({ error: err?.message || "server error" });
+  }
+});
+
+// -----------------------------
+// ACCESS-JSON (for web view)
+// -----------------------------
+app.get("/access-json", async (req, res) => {
+  try {
+    const { token } = req.query;
+    if (!token) return res.status(400).json({ error: "Token required" });
+
+    const { data: sharedLink, error } = await supabase
+      .from("shared_links")
+      .select("*")
+      .eq("token", token)
+      .gte("expires_at", new Date().toISOString())
+      .single();
+
+    if (error || !sharedLink) return res.status(404).json({ error: "Invalid or expired token" });
+
+    // If person-specific, list images for that person folder in storage
+    const urls = [];
+    if (sharedLink.person_id) {
+      const folderPath = `users/${sharedLink.owner_user_id}/${sharedLink.person_id}/`;
+      const { data: listData, error: listErr } = await supabase.storage
+        .from(BUCKET_NAME)
+        .list(folderPath, { limit: 200 });
+      if (!listErr && Array.isArray(listData)) {
+        for (const obj of listData) {
+          const pathOnBucket = folderPath + obj.name;
+          const { data: signed, error: sErr } = await supabase.storage
+            .from(BUCKET_NAME)
+            .createSignedUrl(pathOnBucket, 300);
+          const url = signed?.signedUrl || signed?.signed_url || null;
+          if (!sErr && url) urls.push(url);
+        }
+      }
+    }
+
+    return res.json({ success: true, images: urls });
+  } catch (err) {
+    console.error("access-json error:", err);
+    return res.status(500).json({ error: err?.message || "server error" });
   }
 });
 
