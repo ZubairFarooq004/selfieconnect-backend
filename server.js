@@ -24,7 +24,7 @@ const FACE_API_KEY = process.env.FACE_API_KEY;
 const FACE_API_SECRET = process.env.FACE_API_SECRET;
 const BACKEND_BASE_URL =
   process.env.BACKEND_BASE_URL || `http://localhost:${PORT}`;
-const CONFIDENCE_THRESHOLD = Number(process.env.CONFIDENCE_THRESHOLD || 60);
+const CONFIDENCE_THRESHOLD = Number(process.env.CONFIDENCE_THRESHOLD || 50);
 const BUCKET_NAME = process.env.SUPABASE_BUCKET || "selfies";
 
 console.log("✅ ENV CHECK:", {
