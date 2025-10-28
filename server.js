@@ -327,10 +327,12 @@ app.post("/verify-upload", upload.single("image"), async (req, res) => {
           }
 
           return res.json({
+            success: true,
             match: true,
             personId: p.id,
             confidence: cmp.confidence,
             signedUrls,
+            threshold: CONFIDENCE_THRESHOLD
           });
         } else {
           console.log(`ℹ️ Person ${p.id} not matched (confidence ${cmp?.confidence ?? "n/a"})`);
@@ -344,7 +346,12 @@ app.post("/verify-upload", upload.single("image"), async (req, res) => {
 
     // no match
     console.log("❌ No matching person found for uploaded image");
-    return res.json({ match: false });
+    return res.json({ 
+      success: false, 
+      match: false, 
+      reason: 'below_threshold',
+      threshold: CONFIDENCE_THRESHOLD
+    });
   } catch (err) {
     console.error("verify-upload error:", err?.response?.data || err.message || err);
     const details = err?.response?.data || null;
@@ -370,7 +377,8 @@ app.post("/generate-qr", async (req, res) => {
 
     const baseUrl = BACKEND_BASE_URL;
     const qrLink = `${baseUrl}/shared_view.html?token=${token}`;
-    res.json({ qrLink, token, expiresAt });
+    const accessJsonUrl = `${baseUrl}/access-json?token=${token}`;
+    res.json({ qrLink, accessJsonUrl, token, expiresAt });
   } catch (err) {
     console.error("generate-qr error:", err);
     res.status(500).json({ error: err?.message || "server error" });
@@ -500,10 +508,22 @@ app.get("/access-json", async (req, res) => {
   }
 });
 
+// -----------------------------
+// DEBUG ENDPOINTS
+// -----------------------------
+app.get("/debug-config", (_req, res) => {
+  res.json({
+    CONFIDENCE_THRESHOLD,
+    BACKEND_BASE_URL,
+    BUCKET_NAME,
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.get("/debug-routes", (_req, res) =>
   res.json({
     backend: "Selfie Connect",
-    routes: ["GET /test", "POST /create-person", "POST /verify-upload", "POST /generate-qr", "GET /access", "GET /access-json"],
+    routes: ["GET /test", "POST /create-person", "POST /verify-upload", "POST /generate-qr", "GET /access", "GET /access-json", "GET /debug-config"],
   })
 );
 

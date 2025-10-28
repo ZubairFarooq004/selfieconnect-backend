@@ -27,7 +27,21 @@ GET /test
 ✅ test ok
 ```
 
-### 3. **Debug Routes**
+### 3. **Debug Config**
+```
+GET /debug-config
+```
+**Response:**
+```json
+{
+  "CONFIDENCE_THRESHOLD": 50,
+  "BACKEND_BASE_URL": "https://selfieconnect-backend.onrender.com",
+  "BUCKET_NAME": "selfies",
+  "timestamp": "2025-01-20T10:30:00.000Z"
+}
+```
+
+### 4. **Debug Routes**
 ```
 GET /debug-routes
 ```
@@ -41,7 +55,8 @@ GET /debug-routes
     "POST /verify-upload",
     "POST /generate-qr",
     "GET /access",
-    "GET /access-json"
+    "GET /access-json",
+    "GET /debug-config"
   ]
 }
 ```
@@ -50,7 +65,7 @@ GET /debug-routes
 
 ## 👤 Person Management
 
-### 4. **Create Person**
+### 5. **Create Person**
 ```
 POST /create-person
 Content-Type: multipart/form-data
@@ -79,7 +94,7 @@ Content-Type: multipart/form-data
 
 ## 🔍 Face Verification
 
-### 5. **Verify Upload**
+### 6. **Verify Upload**
 ```
 POST /verify-upload
 Content-Type: multipart/form-data
@@ -92,20 +107,25 @@ Content-Type: multipart/form-data
 **Success Response (Match Found):**
 ```json
 {
+  "success": true,
   "match": true,
   "personId": "uuid",
   "confidence": 85.5,
   "signedUrls": [
     "https://signed-url-1",
     "https://signed-url-2"
-  ]
+  ],
+  "threshold": 50
 }
 ```
 
 **No Match Response:**
 ```json
 {
-  "match": false
+  "success": false,
+  "match": false,
+  "reason": "below_threshold",
+  "threshold": 50
 }
 ```
 
@@ -119,7 +139,7 @@ Content-Type: multipart/form-data
 
 ## 📱 QR Code System
 
-### 6. **Generate QR Code**
+### 7. **Generate QR Code**
 ```
 POST /generate-qr
 Content-Type: application/json
@@ -136,7 +156,8 @@ Content-Type: application/json
 **Response:**
 ```json
 {
-  "qrLink": "https://selfieconnect-backend.onrender.com/access?token=abc123",
+  "qrLink": "https://selfieconnect-backend.onrender.com/shared_view.html?token=abc123",
+  "accessJsonUrl": "https://selfieconnect-backend.onrender.com/access-json?token=abc123",
   "token": "abc123",
   "expiresAt": "2025-10-20T16:52:04.43+00:00"
 }
@@ -146,7 +167,7 @@ Content-Type: application/json
 - `400` - Missing userId
 - `500` - Server error
 
-### 7. **Access via QR Code**
+### 8. **Access via QR Code**
 ```
 GET /access?token=abc123
 ```
