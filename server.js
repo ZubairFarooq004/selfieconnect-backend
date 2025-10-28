@@ -289,16 +289,18 @@ app.post("/verify-upload", upload.single("image"), async (req, res) => {
 
         // Log decision details for debugging threshold behavior
         if (cmp) {
+          const confidence = Number(cmp.confidence);
           const decision = {
-            confidence: cmp.confidence,
+            confidence,
             threshold: CONFIDENCE_THRESHOLD,
-            allow: cmp.confidence >= CONFIDENCE_THRESHOLD,
+            allow: confidence >= CONFIDENCE_THRESHOLD,
+            personId: p.id,
           };
           console.log("DECISION", decision);
         }
 
         // If comparison succeeded and confidence high enough → upload verification image and return gallery
-        if (cmp && cmp.confidence >= CONFIDENCE_THRESHOLD) {
+        if (cmp && Number(cmp.confidence) >= CONFIDENCE_THRESHOLD) {
           console.log(`✅ Match found for person ${p.id} — confidence ${cmp.confidence}`);
 
           // upload verification image into the person's folder
@@ -326,13 +328,30 @@ app.post("/verify-upload", upload.single("image"), async (req, res) => {
             if (url) signedUrls.push(url);
           }
 
+          // generate a fresh access token for this success
+          const token = crypto.randomBytes(16).toString("hex");
+          const expiresAt = new Date(Date.now() + 3600 * 1000).toISOString();
+          try {
+            const { error: linkErr } = await supabase.from("shared_links").insert([
+              { owner_user_id: userId, person_id: p.id, token, expires_at: expiresAt },
+            ]);
+            if (linkErr) console.warn("⚠️ Failed to persist shared link token:", linkErr.message);
+          } catch (tErr) {
+            console.warn("⚠️ Token creation error:", tErr?.message || tErr);
+          }
+
+          const accessJsonUrl = `${BACKEND_BASE_URL}/access-json?token=${token}`;
+
           return res.json({
             success: true,
             match: true,
             personId: p.id,
-            confidence: cmp.confidence,
+            confidence: Number(cmp.confidence),
             signedUrls,
-            threshold: CONFIDENCE_THRESHOLD
+            threshold: CONFIDENCE_THRESHOLD,
+            token,
+            accessJsonUrl,
+            expiresAt,
           });
         } else {
           console.log(`ℹ️ Person ${p.id} not matched (confidence ${cmp?.confidence ?? "n/a"})`);
